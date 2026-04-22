@@ -1,6 +1,6 @@
 import polars as pl
 import numpy as np
-from scipy.optimize import minimize_scalar
+from scipy.optimize import minimize_scalar, minimize
 from q1 import h
 
 
@@ -94,25 +94,13 @@ def generate_model_data(df_elements):
     # compute final values
     df_final = df_elements.select([
         (pl.col("country")),
-        (pl.col("year")),
+        (pl.col("year")).cast(pl.String),
         (pl.col("h_pw") * pl.col("lfpr")).alias("h_obs"),
         ((pl.col("t_h") + pl.col("t_c")) / (1 + pl.col("t_c"))).alias("t"),
         (pl.col("c") / pl.col("y")).alias("c_y"),
     ])
 
     return df_final, df_elements
-
-def run_data_pipeline():
-
-    df_merged = load_g7_data()
-    df_final, df_elements = generate_model_data(df_merged)
-
-    # run validation to sense check all data transformations - if it fails it will raise an assertion error
-    validate_model_data(df_elements, df_final)
-
-    # save dataframes for use in report
-    df_elements.write_csv("outputs/df_elements.csv")
-    df_final.write_csv("outputs/df_final.csv")
 
 def validate_model_data(df_elements, df_final):
     """
@@ -155,21 +143,72 @@ def validate_model_data(df_elements, df_final):
     assert df_final.filter((pl.col("t") < 0) | (pl.col("t") >= 1)).height == 0, "t must be in [0,1)"
     assert df_final.filter((pl.col("c_y") <= 0) | (pl.col("c_y") >= 2)).height == 0, "c_y out of plausible range"
 
-def calibrate_alpha(df, alpha_guess = 0, theta = 1.77):
+def run_data_pipeline():
 
-    alpha = alpha_guess
-    df["h_mod"] = h(theta, alpha, df["t"], df["c_y"])
+    df_merged = load_g7_data()
+    df_final, df_elements = generate_model_data(df_merged)
 
-    return df
+    # run validation to sense check all data transformations - if it fails it will raise an assertion error
+    validate_model_data(df_elements, df_final)
 
-def loss_function(h_obs: pl.Series, h_mod: pl.Series):
+    # save dataframes for use in report
+    df_elements.write_csv("outputs/df_elements.csv")
+    df_final.write_csv("outputs/df_final.csv")
+
+def calibrate_alpha(df, alpha_guess = 1.54, theta = 0.32):
+
+    results = {}
+
+    res_bounded = minimize_scalar(lambda alpha: loss_function(df, alpha, theta), method = "bounded", bounds = (0, 100)) # large bound
+    res_brent = minimize_scalar(lambda alpha: loss_function(df, alpha, theta), method = "brent", bracket = (0, alpha_guess, 10)) # large bound 
+    res_nm = minimize(lambda alpha: loss_function(df, alpha, theta), x0 = [alpha_guess], method = "Nelder-Mead") # large bound 
+
+    results["bounded"] = res_bounded.x
+    results["brent"] = res_brent.x
+    results["nm"] = res_nm.x[0]
+
+    return results
+
+def loss_function(df, alpha: float, theta: float) -> float:
     """
-    Arguments - h_obs, h_mod -> pandas columns
-    
     Outputs - loss -> float (scalar)
     """
     #elementwise loss
-    loss_series = (h_obs - h_mod)**2
+    h_pred = h(theta, alpha, df["t"], df["c_y"]) # compute predicted hours as a series
+    loss = ((df["h_obs"] - h_pred) ** 2).sum() # loss = sum of MSE of series
+    
+    return float(loss)
 
-    return float(sum(loss_series))
+def q2_b():
+
+    alpha_guess = 1.54
+    theta = 0.32
+
+    df_2019 = pl.read_csv("outputs/df_final.csv", schema_overrides={"year": pl.String}) # need to override year since polars infers it as int
+    df_1994 = pl.read_csv("q2data/prescott_94_96.csv")
+
+    df = pl.concat([df_2019, df_1994])
+
+    results = calibrate_alpha(df, alpha_guess, theta)
+
+    for method, alpha in results.items():
+        print(f"Search Method: {method}")
+        print(f"Alpha: {alpha: .6f}")
+
+        pred_col = f"h_pred_{method}"
+        diff_col = f"diff_{method}"
+
+        df = df.with_columns([h(theta, alpha, df["t"], df["c_y"]).alias(pred_col),
+        ]).with_columns([(pl.col(pred_col) - pl.col("h_obs")).alias(diff_col),])
+
+        diff_2019 = df.filter(pl.col("year") == "2019")[diff_col].abs().sum()
+        
+        # Error for 1993-96
+        diff_1994 = df.filter(pl.col("year") == "1993-96")[diff_col].abs().sum()
+
+        print(f"Total Error (2019):    {diff_2019: .4f}")
+        print(f"Total Error (1993-96): {diff_1994: .4f}")
+        print(f"Total Error: {diff_2019 + diff_1994: .4f}\n")
+
+    df.write_csv("outputs/model_predictions.csv")
 
