@@ -1,6 +1,7 @@
 import polars as pl
 import numpy as np
 from scipy.optimize import minimize_scalar, minimize
+import matplotlib.pyplot as plt
 from q1 import h
 
 
@@ -212,3 +213,63 @@ def q2_b():
 
     df.write_csv("outputs/model_predictions.csv")
 
+def plot_predictions():
+    method = "nm"
+    save_path = "outputs/diff_fig"
+
+    df = pl.read_csv("outputs/model_predictions.csv", schema_overrides={"year": pl.String})
+    periods = ["1993-96", "2019"]
+    pred_col = f"h_pred_{method}"
+
+    # --- 1. Calculate Global Limits ---
+    # Filter for all periods you intend to plot to find the true min/max
+    relevant_data = df.filter(pl.col("year").is_in(periods))
+    all_values = relevant_data["h_obs"].to_list() + relevant_data[pred_col].to_list()
+    
+    global_min = min(all_values) - 0.5
+    global_max = max(all_values) + 0.5
+    # ----------------------------------
+
+    for period in periods:
+        df_period = df.filter(pl.col("year") == period).select(
+            ["country", "h_obs", pred_col]
+        )
+
+        x = df_period["h_obs"].to_list()
+        y = df_period[pred_col].to_list()
+        countries = df_period["country"].to_list()
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.scatter(x, y, color="red")
+
+        # 45-degree line using global limits
+        ax.plot([global_min, global_max], [global_min, global_max], linestyle="--", color="gray", alpha=0.7)
+
+        # Country labels
+        for xi, yi, label in zip(x, y, countries):
+            ax.annotate(label, (xi, yi), xytext=(5, 5), textcoords="offset points", fontsize=9)
+
+        ax.set_title(f"Predicted vs Observed Labour Supply ({period})")
+        ax.set_xlabel("Observed labour supply")
+        ax.set_ylabel("Predicted labour supply")
+
+        # --- 2. Apply Global Limits & Grid ---
+        ax.set_xlim(global_min, global_max)
+        ax.set_ylim(global_min, global_max)
+        ax.grid(True, linestyle=':', alpha=0.6) # Ensures a visible grid on both
+        # -------------------------------------
+
+        plt.tight_layout()
+
+        if save_path is not None:
+            safe_period = str(period).replace("/", "-").replace(" ", "_")
+            plt.savefig(f"{save_path}_{safe_period}.pdf", dpi=300, bbox_inches="tight")
+            plt.close()
+        else:
+            plt.show()
+
+def main():
+    plot_predictions()
+
+if __name__ == "__main__":
+    main()
