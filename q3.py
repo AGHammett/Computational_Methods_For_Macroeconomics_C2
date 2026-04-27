@@ -60,10 +60,6 @@ print("FOC at h=21.1:", foc_equilibrium_condition(21.1, tau, c_y, alpha, sigma, 
 print("FOC at h=99:", foc_equilibrium_condition(99, tau, c_y, alpha, sigma, theta))
 
 
-
-
-
-
 def solve_h(tau, c_y, alpha, sigma, theta = 0.32):
     result = minimize_scalar(
         lambda h: foc_equilibrium_condition(h, tau, c_y, alpha, sigma, theta) ** 2,
