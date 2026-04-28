@@ -68,9 +68,6 @@ def solve_h(tau, c_y, alpha, sigma, theta = 0.32):
 
     return result.x
 
-def solve_h(tau, c_y, alpha, sigma, theta=0.32):
-    return brentq(foc_equilibrium_condition,1e-6,99.999,args=(tau, c_y, alpha, sigma, theta))
-
 
 #Creating the loss function for alpha to be calibrated on
 def loss_function(parameters, df, theta = 0.32):
@@ -153,5 +150,45 @@ plt.legend()
 
 plt.show()
 
+
+def two_dim_opt(df, alpha_bound, sigma_bound, grid_points):
+
+    alpha_grid = np.linspace(0, alpha_bound, grid_points)
+    sigma_grid = np.linspace(0, sigma_bound, grid_points)
+
+    n_loss_values = 1000
+    loss_values = []
+    min_loss_params = []
+
+    for a in alpha_grid:
+        for s in sigma_grid:
+
+            loss = loss_function((a, s), df)
+
+            if len(loss_values) < n_loss_values:
+                loss_values.append(loss)
+                min_loss_params.append((a, s))
+            else:
+                list_max = max(loss_values)
+                if loss < list_max:
+                    max_index = loss_values.index(list_max)
+                    loss_values[max_index] = loss
+                    min_loss_params[max_index] = (a, s)
+
+
+    min_loss = 1e8
+    min_params = None
+    for params in min_loss_params:
+
+        res_nm = minimize(loss_function, x0 = [params[0], params[1]])
+
+        alpha, sigma = res_nm.x
+        params_loss = loss_function((alpha, sigma), df)
+
+        if params_loss < min_loss:
+            min_loss = params_loss
+            min_params = (alpha, sigma)
+
+    return min_params
 
 
