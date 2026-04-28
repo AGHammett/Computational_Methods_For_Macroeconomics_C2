@@ -7,7 +7,6 @@ from scipy.optimize import minimize
 from mpl_toolkits.mplot3d import Axes3D
 
 
-
 def loss_for_grid(alpha, sigma, df, theta=0.32):
     h_pred = df.apply(
         lambda row: solve_h(row["t"], row["c_y"], alpha, sigma, theta),
@@ -160,9 +159,11 @@ def two_dim_opt(df, alpha_bound, sigma_bound, grid_points):
     loss_values = []
     min_loss_params = []
 
-    for a in alpha_grid:
+    for i, a in enumerate(alpha_grid):
+    
+        if i % 100 == 0:
+            print(f"Iteration: {i}") 
         for s in sigma_grid:
-
             loss = loss_function((a, s), df)
 
             if len(loss_values) < n_loss_values:
@@ -189,6 +190,16 @@ def two_dim_opt(df, alpha_bound, sigma_bound, grid_points):
             min_loss = params_loss
             min_params = (alpha, sigma)
 
+    print(min_loss)
+    print(min_params)
     return min_params
 
 
+def main():
+
+    #df = pd.read_csv('q2data/data_prescott.csv')
+
+    min_params = two_dim_opt(df_calib, 100000, 10, 1000)
+
+if __name__ == "__main__":
+    main()
