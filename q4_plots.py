@@ -44,8 +44,8 @@ def plot_paths(k2_values, Z: np.ndarray, p: Params, k_star=None, k_target=None):
 
     # 4. Enhance the Steady State line
     if k_star is not None:
-        plt.axhline(k_star, color="black", linestyle=":", 
-                    linewidth=1.5, alpha=0.9, label=fr"Steady State $k^*$= {k_star:.4f}")
+        plt.axhline(k_star, color="#4B0082", linestyle="-.", 
+                    linewidth=1.8, alpha=1.0, label=fr"Steady State $k^*$= {k_star:.4f}")
 
     # 5. Professional Touches
     plt.title("Dynamics of Capital Accumulation: Convergence Paths", fontsize=14, pad=15)
