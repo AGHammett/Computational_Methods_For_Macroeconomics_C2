@@ -4,8 +4,15 @@ from scipy.optimize import minimize_scalar, minimize
 import matplotlib.pyplot as plt
 from pathlib import Path
 
+# set up output path globals 
+DATA_DIR = Path("q2data")
+OUTPUT_DIR = Path("outputs")
+
 def load_g7_data():
     """
+    Reads all raw data files, transforms, renames and returns single wide frame
+    Countries down rows, variables along columns
+
     Country Names use:
     Canada
     France
@@ -33,17 +40,17 @@ def load_g7_data():
     DEF_GDP_PERC = 0.012845 # Canada defence expenditure as % of GDP - taken from World Bank data
 
     # UN SNA data
-    df_gdp = pl.read_csv("q2data/un_gdp.csv")
-    df_con = pl.read_csv("q2data/un_consumption.csv")
-    df_gov_cofog = pl.read_csv("q2data/un_gov_cofog.csv")
-    df_ind_tax = pl.read_csv("q2data/un_indirect_tax.csv")
-    df_econ = pl.read_csv("q2data/un_total_economy.csv", schema_overrides={"Value": pl.Float64, "SNA93 Table Code": pl.Utf8})
-    df_hh = pl.read_csv("q2data/un_household.csv", schema_overrides={"SNA93 Table Code": pl.Utf8})
+    df_gdp = pl.read_csv(DATA_DIR / "un_gdp.csv")
+    df_con = pl.read_csv(DATA_DIR / "un_consumption.csv")
+    df_gov_cofog = pl.read_csv(DATA_DIR / "un_gov_cofog.csv")
+    df_ind_tax = pl.read_csv(DATA_DIR / "un_indirect_tax.csv")
+    df_econ = pl.read_csv(DATA_DIR / "un_total_economy.csv", schema_overrides={"Value": pl.Float64, "SNA93 Table Code": pl.Utf8})
+    df_hh = pl.read_csv(DATA_DIR / "un_household.csv", schema_overrides={"SNA93 Table Code": pl.Utf8})
 
     # OECD data
-    df_ldpr = pl.read_csv("q2data/labour_force_rate.csv", skip_rows = 2)
-    df_hours = pl.read_csv("q2data/hours_worked.csv", skip_rows = 2)
-    df_tax_wedge = pl.read_csv("q2data/tax_wedge.csv", skip_rows = 2)
+    df_ldpr = pl.read_csv(DATA_DIR / "labour_force_rate.csv", skip_rows = 2)
+    df_hours = pl.read_csv(DATA_DIR / "hours_worked.csv", skip_rows = 2)
+    df_tax_wedge = pl.read_csv(DATA_DIR / "tax_wedge.csv", skip_rows = 2)
 
     # replace UK name in gpd file to be consistent with others
     df_gdp = df_gdp.with_columns(
@@ -111,6 +118,10 @@ def load_g7_data():
     return df_merged
 
 def generate_model_data(df_elements, theta = 0.32):
+    """
+    Takes transformed raw data, creates all intermediate elements and final variables
+    Returns elements and final dfs
+    """
 
     # compute intermediate values
     df_elements = (df_elements.with_columns([
@@ -181,9 +192,12 @@ def validate_model_data(df_elements, df_final):
     assert df_final.filter((pl.col("c_y") <= 0) | (pl.col("c_y") >= 2)).height == 0, "c_y out of plausible range"
 
 def run_data_pipeline():
+    """
+    Runs data import and model data genetaion.
+    Creates output directory if non-existant and saves elements and final df within
+    """
 
     # create output directory if it doesn't already exist
-    OUTPUT_DIR = Path("outputs")
     OUTPUT_DIR.mkdir(exist_ok=True) 
 
     df_merged = load_g7_data()
@@ -206,6 +220,10 @@ def h(theta: float, alpha: float, t, c_o): # return prescott model predicted hou
     return num / den
 
 def calibrate_alpha(df, tax_col, alpha_guess = 1.54, theta = 0.32):
+    """
+    Uses 3 minimisation routines to minimise loss function over alpha
+    returns dict containing miniser (alpha*) for each routine
+    """
 
     results = {} # instantiate dict for results
 
@@ -222,7 +240,8 @@ def calibrate_alpha(df, tax_col, alpha_guess = 1.54, theta = 0.32):
 
 def loss_function(df, tax_col, alpha: float, theta: float) -> float:
     """
-    Outputs - loss -> float (scalar)
+    Square error loss function over prescott dataframe
+    returns scalar loss value
     """
     #elementwise loss
     h_pred = h(theta, alpha, df[tax_col], df["c_y"]) # compute predicted hours over dataframe
@@ -236,8 +255,8 @@ def q2_b():
     theta = 0.32
     tax_cols = ["t", "t_alt"] # Prescott measure and OECD tax wedge
 
-    df_2019 = pl.read_csv("outputs/df_final.csv", schema_overrides={"year": pl.String}) # need to override year since polars infers it as int
-    df_1994 = pl.read_csv("q2data/prescott_94_96.csv")
+    df_2019 = pl.read_csv(OUTPUT_DIR / "df_final.csv", schema_overrides={"year": pl.String}) # need to override year since polars infers it as int
+    df_1994 = pl.read_csv(DATA_DIR / "prescott_94_96.csv")
     df_1994 = df_1994.with_columns(pl.col("t").alias("t_alt")) # copy t into the t_alt for later calibration
     
     
@@ -273,7 +292,7 @@ def q2_b():
 
             print(f"Total Absolute Error (2019):    {diff_2019: .4f}")
             print(f"Total Absolute Error (1993-96): {diff_1994: .4f}")
-            print(f"Total Absolute Error: {diff_2019 + diff_1994: .4f}\n")
+            print(f"Total Absolute Error:           {diff_2019 + diff_1994: .4f}\n")
 
             calibration_rows.append({
                 "tax_col": col,
@@ -281,14 +300,14 @@ def q2_b():
                 "alpha": alpha
             })
 
-    pl.DataFrame(calibration_rows).write_csv("outputs/calibration_results.csv")
-    df.write_csv("outputs/model_predictions.csv")
+    pl.DataFrame(calibration_rows).write_csv(OUTPUT_DIR / "calibration_results.csv")
+    df.write_csv(OUTPUT_DIR / "model_predictions.csv")
 
 
 def plot_predictions(save_path = None):
     method = "nm" # lowest loss method
 
-    df = pl.read_csv("outputs/model_predictions.csv", schema_overrides={"year": pl.String})
+    df = pl.read_csv(OUTPUT_DIR / "model_predictions.csv", schema_overrides={"year": pl.String})
     periods = ["1993-96", "2019"]
     
     # Define the two prediction columns based on the results
@@ -358,7 +377,7 @@ def main():
         run_data_pipeline()
 
     q2_b() # needs outputs/df_final.csv to run
-    plot_predictions(save_path = "outputs/diff_fig")
+    plot_predictions(save_path = OUTPUT_DIR / "diff_fig")
 
 if __name__ == "__main__":
     main()
