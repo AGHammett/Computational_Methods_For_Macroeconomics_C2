@@ -2,9 +2,7 @@ import polars as pl
 import numpy as np
 from scipy.optimize import minimize_scalar, minimize
 import matplotlib.pyplot as plt
-from q1 import h
-
-
+from pathlib import Path
 
 def load_g7_data():
     """
@@ -184,6 +182,10 @@ def validate_model_data(df_elements, df_final):
 
 def run_data_pipeline():
 
+    # create output directory if it doesn't already exist
+    OUTPUT_DIR = Path("outputs")
+    OUTPUT_DIR.mkdir(exist_ok=True) 
+
     df_merged = load_g7_data()
     df_final, df_elements = generate_model_data(df_merged)
 
@@ -192,18 +194,26 @@ def run_data_pipeline():
 
     # save dataframes for use in report
     print("Saving elements csv...")
-    df_elements.write_csv("outputs/df_elements.csv")
+    df_elements.write_csv(OUTPUT_DIR / "df_elements.csv")
     print("Saving final csv...")
-    df_final.write_csv("outputs/df_final.csv")
+    df_final.write_csv(OUTPUT_DIR / "df_final.csv")
+
+def h(theta: float, alpha: float, t, c_o): # return prescott model predicted hours can run vectorise or scalar
+
+    num = 100 * (1 - theta)
+    den = (alpha / (1 - t)) * c_o + 1 - theta
+
+    return num / den
 
 def calibrate_alpha(df, tax_col, alpha_guess = 1.54, theta = 0.32):
 
-    results = {}
+    results = {} # instantiate dict for results
 
     res_bounded = minimize_scalar(lambda alpha: loss_function(df, tax_col, alpha, theta), method = "bounded", bounds = (0, 100)) # large bound
     res_brent = minimize_scalar(lambda alpha: loss_function(df, tax_col, alpha, theta), method = "brent", bracket = (0, alpha_guess, 10)) # large bound 
     res_nm = minimize(lambda alpha: loss_function(df, tax_col, alpha, theta), x0 = [alpha_guess], method = "Nelder-Mead")
 
+    # save results in dict
     results["bounded"] = res_bounded.x
     results["brent"] = res_brent.x
     results["nm"] = res_nm.x[0]
@@ -215,7 +225,7 @@ def loss_function(df, tax_col, alpha: float, theta: float) -> float:
     Outputs - loss -> float (scalar)
     """
     #elementwise loss
-    h_pred = h(theta, alpha, df[tax_col], df["c_y"]) # compute predicted hours as a series
+    h_pred = h(theta, alpha, df[tax_col], df["c_y"]) # compute predicted hours over dataframe
     loss = ((df["h_obs"] - h_pred) ** 2).sum() # loss = sum of MSE of series
     
     return float(loss)
@@ -238,6 +248,8 @@ def q2_b():
 
     df = pl.concat([df_2019, df_1994])
 
+    calibration_rows = []
+
     for col in tax_cols:
 
         print(f"============= Results using {col} as the Tax column ============= \n")
@@ -259,10 +271,17 @@ def q2_b():
             # Error for 1993-96
             diff_1994 = df.filter(pl.col("year") == "1993-96")[diff_col].abs().sum()
 
-            print(f"Total Error (2019):    {diff_2019: .4f}")
-            print(f"Total Error (1993-96): {diff_1994: .4f}")
-            print(f"Total Error: {diff_2019 + diff_1994: .4f}\n")
+            print(f"Total Absolute Error (2019):    {diff_2019: .4f}")
+            print(f"Total Absolute Error (1993-96): {diff_1994: .4f}")
+            print(f"Total Absolute Error: {diff_2019 + diff_1994: .4f}\n")
 
+            calibration_rows.append({
+                "tax_col": col,
+                "method": method,
+                "alpha": alpha
+            })
+
+    pl.DataFrame(calibration_rows).write_csv("outputs/calibration_results.csv")
     df.write_csv("outputs/model_predictions.csv")
 
 
@@ -332,7 +351,13 @@ def plot_predictions(save_path = None):
             plt.show()
 
 def main():
-    q2_b()
+
+    no_final_data = False # if final data hasn't been created set to True
+
+    if no_final_data == True: # only creates final data if True
+        run_data_pipeline()
+
+    q2_b() # needs outputs/df_final.csv to run
     plot_predictions(save_path = "outputs/diff_fig")
 
 if __name__ == "__main__":
