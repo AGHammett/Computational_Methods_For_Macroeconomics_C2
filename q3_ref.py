@@ -220,8 +220,8 @@ def run_optimisation(df):
     diff_alpha = diff_ev_results["Alpha"]
     diff_sigma = diff_ev_results["Sigma"]
 
-    wrong_start_results = minimise_loss_group(df, [methods[2]], (diff_alpha, diff_sigma), "Diff Ev")
-    results += wrong_start_results
+    diff_ev_qn_results = minimise_loss_group(df, [methods[2]], (diff_alpha, diff_sigma), "Diff Ev")
+    results += diff_ev_qn_results
 
     best_rand_guess = 1e10
     best_rand_res = None
@@ -265,7 +265,7 @@ results = df_optim_results.to_dict(orient="records")
 
 def create_predictions(df, alpha, sigma):
 #Creating a new data frame for the jointly calibrated variables to be presented in a table
-    df_jointly_calibrated_table = df
+    df_jointly_calibrated_table = df.copy()
 
     #Renaming columns to match lecture slides
     df_jointly_calibrated_table = df_jointly_calibrated_table.rename(columns = {
@@ -361,49 +361,46 @@ plot_model_fit(df_jointly_calibrated_table, "1970-74", (18, 30), (18, 34), "Mode
 #----------------------------------------------CREATING AN IMPROVEMENT COLUMN FOR PRESCOTT AND JOINT CALIBRATED MODEL----------------------------------------------------
 
 
-
+def create_improvement_df(df_crra, df_prescott):
 #This code is coppied from Q1 script as it uses the exact same data with the exception of changing the Pandas DataFrame name 
 
-#Prescott data using the clean data frame which does not include the CRRA utilty function
-df_prescott = df_clean.copy()
+    #Renaming columns to match lecture slides
+    df_prescott = df_prescott.rename(columns = {
+        "period": "Period",
+        "country": "Country",
+        "h_obs": "Actual",
+        "t": "tau",
+        "c_y": "c_y"})
 
-#Renaming columns to match lecture slides
-df_prescott = df_prescott.rename(columns = {
-    "period": "Period",
-    "country": "Country",
-    "h_obs": "Actual",
-    "t": "tau",
-    "c_y": "c_y"})
+    #Making time period labels match lecture slides
+    df_prescott["Period"] = df_prescott["Period"].replace({
+        "1993-1996": "1993-96",
+        "1970-1974": "1970-74"})
 
-#Making time period labels match lecture slides
-df_prescott["Period"] = df_prescott["Period"].replace({
-    "1993-1996": "1993-96",
-    "1970-1974": "1970-74"})
+    #Keeping only the necessary columns required
+    df_prescott = df_prescott[["Period", "Country", "Actual", "tau", "c_y"]]
 
-#Keeping only the necessary columns required
-df_prescott = df_prescott[["Period", "Country", "Actual", "tau", "c_y"]]
+    #Adding in predicted labour supply using Q1 calibrated alpha
+    df_prescott["Predict"] = df_prescott.apply(
+        lambda row: prescott_foc_equilibrium_condition(row["tau"], row["c_y"]), axis=1).round(1)
 
-#Adding in predicted labour supply using Q1 calibrated alpha
-df_prescott["Predict"] = df_prescott.apply(
-    lambda row: prescott_foc_equilibrium_condition(row["tau"], row["c_y"]), axis=1).round(1)
+    #Adding in the difference column
+    df_prescott["Difference"] = (df_prescott["Predict"] - df_prescott["Actual"]).round(1)
 
-#Adding in the difference column
-df_prescott["Difference"] = (df_prescott["Predict"] - df_prescott["Actual"]).round(1)
+    #Creating a new data frame to compare the data from Prescotts model and the CRRA model where parameters were jointly calibrated
+    df_compare = df_crra.copy()
 
-#Creating a new data frame to compare the data from Prescotts model and the CRRA model where parameters were jointly calibrated
-df_compare = df_jointly_calibrated_table.copy()
+    df_compare["Prescott Difference"] = df_prescott["Difference"]
+    df_compare["CRRA Difference"] = df_jointly_calibrated_table["Difference"]
 
-df_compare["Prescott Difference"] = df_prescott["Difference"]
-df_compare["CRRA Difference"] = df_jointly_calibrated_table["Difference"]
+    #Calculating the difference between the Prescott data and the CRRA data
+    df_compare["Improvement"] = df_compare["Prescott Difference"].abs() - df_compare["CRRA Difference"].abs()
 
-#Calculating the difference between the Prescott data and the CRRA data
-df_compare["Improvement"] = df_compare["Prescott Difference"].abs() - df_compare["CRRA Difference"].abs()
+    #Creating the columns for the new table comparing the values
+    df_compare = df_compare[["Period", "Country", "Prescott Difference", "CRRA Difference", "Improvement"]]
 
-#Creating the columns for the new table comparing the values
-df_compare = df_compare[["Period", "Country", "Prescott Difference", "CRRA Difference", "Improvement"]]
-
-print(df_compare.to_latex(index=False, float_format="%.1f")) #Latex form 
-print("\n",df_compare)
+    print(df_compare.to_latex(index=False, float_format="%.1f")) #Latex form 
+    print("\n",df_compare)
 
 
 #---------------------------------------------GRAPHING THE SURFACE AND CONTOUR OF THE LOSS FUNCTION---------------------------------------
