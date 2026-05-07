@@ -156,7 +156,7 @@ def minimise_loss_group(df, methods: list[dict], guess, hybrid_method: str = Non
         )
 
         res_dict = {
-            "Method": f"{hybrid_method} {method}",
+            "Method": f"{hybrid_method} {method}".strip(),
             "Alpha": res.x[0],
             "Sigma": res.x[1],
             "Loss": res.fun,
@@ -474,14 +474,17 @@ def plot_loss_surface(df, loss_function, alpha_range, sigma_range, optimiser_poi
 
 # Define style for each method
 style_map = {
-    "L-BFGS-B": {"name": "L-BFGS-B (Bounded Quasi-Newton)", "colour": "blue", "marker": "^"},
-    "Nelder-Mead (single)": {"name": "Nelder-Mead Single", "colour": "pink", "marker": "o"},
-    "BFGS": {"name": "BFGS (Quasi-Newton)", "colour": "black", "marker": "X"},
-    "Nelder-Mead (random restarts)": {"name": "Nelder-Mead Random Restarts", "colour": "brown", "marker": "d"},
-    "Grid + BFGS": {"name": "Grid Search + Quasi-Newton", "colour": "orange", "marker": "s"},
     "Grid Search": {"name": "Grid Search", "colour": "green", "marker": "v"},
+    "Nelder-Mead": {"name": "Nelder-Mead", "colour": "pink", "marker": "o"},
+    "BFGS": {"name": "BFGS", "colour": "black", "marker": "X"},
+    "L-BFGS-B": {"name": "L-BFGS-B", "colour": "blue", "marker": "^"},
+    "Grid Search Nelder-Mead": {"name": "Grid Search + Nelder-Mead", "colour": "purple", "marker": "P"},
+    "Grid Search BFGS": {"name": "Grid Search + BFGS", "colour": "orange", "marker": "s"},
+    "Grid Search L-BFGS-B": {"name": "Grid Search + L-BFGS-B", "colour": "cyan", "marker": "D"},
+    "Bad Start Nelder-Mead": {"name": "Bad Start + Nelder-Mead", "colour": "red", "marker": "x"},
     "Differential Evolution": {"name": "Differential Evolution", "colour": "gray", "marker": "*"},
-    "DE + L-BFGS-B": {"name": "Differential Evolution + Bounded Quasi-Newton", "colour": "red", "marker": "v"}
+    "Diff Ev L-BFGS-B": {"name": "Differential Evolution + L-BFGS-B", "colour": "brown", "marker": "h"},
+    "Random Start Nelder-Mead": {"name": "Random Start + Nelder-Mead", "colour": "magenta", "marker": "d"}
 }
 
 # Create dict using results and style map
