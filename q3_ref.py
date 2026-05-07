@@ -105,7 +105,7 @@ def loss_function(parameters, df, theta = 0.32): #Theta is kept fixed
 
 #A variety of different optimisers
 
-def grid_search_a_s(density):
+def grid_search_a_s(df, density):
     alpha_grid = np.linspace(500, 20000, density) #Creating a large grid to search up for alpha and sigma
     sigma_grid = np.linspace(1.5, 4.0, density)
     best_grid_loss = np.inf #infinite grid 
@@ -115,7 +115,7 @@ def grid_search_a_s(density):
     for alpha in alpha_grid:
         for sigma in sigma_grid:
             try:
-                loss = loss_function([alpha, sigma], df_calib_crra)
+                loss = loss_function([alpha, sigma], df)
             except ValueError: #This stops the function from breaking if we encounter an error
                 loss = np.inf #If we get an error, loss becomes infinity
 
@@ -126,30 +126,23 @@ def grid_search_a_s(density):
     
     res_dict = {
         "Method": "Grid Search",
-        "Alpha": best_alpha,
-        "Sigma": best_sigma,
-        "Loss": best_loss,
+        "Alpha": best_grid_alpha,
+        "Sigma": best_grid_sigma,
+        "Loss": best_grid_loss,
         "Success": True
     }
     
     return res_dict
 
-grid_res = grid_search_a_s(density = 80)
+grid_res = grid_search_a_s(df_calib_crra, density = 80)
 best_grid_loss = grid_res["Loss"]
 best_grid_alpha = grid_res["Alpha"]
 best_grid_sigma = grid_res["Sigma"]
 
 
-def minimize_loss_group(df, guess, bounds):
+def minimise_loss_group(df, methods: list[dict], guess, hybrid_method: str = None):
 
     results = []
-
-    methods = [ # maybe have as an argument!
-    {"method": "Nelder-Mead", "bounds": None},
-    {"method": "BFGS", "bounds": None},
-    {"method": "L-BFGS-B", "bounds": bounds},
-    ]
-
     for spec in methods:
         method = spec["method"]
         method_bounds = spec["bounds"]
@@ -163,7 +156,7 @@ def minimize_loss_group(df, guess, bounds):
         )
 
         res_dict = {
-            "Method": method,
+            "Method": f"{hybrid_method} {method}",
             "Alpha": res.x[0],
             "Sigma": res.x[1],
             "Loss": res.fun,
@@ -184,204 +177,129 @@ def minimise_diff_ev(df, bounds, seed = 123):
 
     res_dict = {
             "Method": "Differential Evolution",
-            "Alpha": res.x[0],
-            "Sigma": res.x[1],
-            "Loss": res.fun,
-            "Success": res.success
+            "Alpha": res_de.x[0],
+            "Sigma": res_de.x[1],
+            "Loss": res_de.fun,
+            "Success": res_de.success
         }
 
     return res_dict
 
+def run_optimisation(df):
+
+    grid_density = 80
+    results = []
+    start_guess = (10000, 2)
+    bounds = [(0.01, 100000), (0.01, 10)]
+    n_random_starts = 50
+    np.random.seed(123)
+
+    methods = [ # maybe have as an argument!
+        {"method": "Nelder-Mead", "bounds": None},
+        {"method": "BFGS", "bounds": None},
+        {"method": "L-BFGS-B", "bounds": bounds},
+        ]
+
+    grid_res = grid_search_a_s(df, grid_density)
+    results.append(grid_res)
+    grid_alpha = grid_res["Alpha"]
+    grid_sigma = grid_res["Sigma"]
+
+    single_results = minimise_loss_group(df, methods, start_guess, "")
+    results += single_results
+
+    grid_start_results = minimise_loss_group(df, methods, (grid_alpha, grid_sigma), "Grid Search")
+    results += grid_start_results
+
+    # show exmaple of how wrong starting guess get's wrong point
+    wrong_start_results = minimise_loss_group(df, [methods[0]], (10, 2), "Bad Start")
+    results += wrong_start_results
+
+    diff_ev_results = minimise_diff_ev(df, bounds)
+    results.append(diff_ev_results)
+    diff_alpha = diff_ev_results["Alpha"]
+    diff_sigma = diff_ev_results["Sigma"]
+
+    wrong_start_results = minimise_loss_group(df, [methods[2]], (diff_alpha, diff_sigma), "Diff Ev")
+    results += wrong_start_results
+
+    best_rand_guess = 1e10
+    best_rand_res = None
+    for i in range(n_random_starts):
+
+        alpha_start = np.random.uniform(100, 100000)
+        sigma_start = np.random.uniform(0.5, 10)
+
+        try:
+            rand_nm_res = minimise_loss_group(df, [methods[0]], (alpha_start, sigma_start), "Random Start")[0] # need to recover results from list
+        except ValueError:
+            print(f"Thrown Error Iteration no {i} at Alpha {alpha_start} & Sigma {sigma_start}")
+            pass
+
+        if rand_nm_res["Loss"] < best_rand_guess:
+            best_rand_guess = rand_nm_res["Loss"]
+            best_rand_res = rand_nm_res
+    
+    results.append(best_rand_res)
+    print(f"Diff Ev best Loss: {diff_ev_results["Loss"]}")
+    print(f"Random NM best Loss: {best_rand_res["Loss"]}")
+
+    df_results = pd.DataFrame(results)
+
+    #Rounding all results for presentation
+    df_results[["Alpha", "Sigma", "Loss"]] = df_results[["Alpha", "Sigma", "Loss"]].round(4)
+    latex_table = df_results.to_latex(index=False, float_format="%.4f")
+    print(latex_table)
+    print(df_results)
+    return df_results
+
+df_optim_results = run_optimisation(df_calib_crra)
+best_loss_row_idx = df_optim_results["Loss"].idxmin()
+best_alpha = df_optim_results.loc[best_loss_row_idx, "Alpha"]
+best_sigma = df_optim_results.loc[best_loss_row_idx, "Sigma"]
+print(f"Lowest Loss value found by {df_optim_results.loc[df_optim_results["Loss"].idxmin()]}")
 
 
-# 1) L-BFGS-B - bounded quasi-Newton
-res_lbfgsb = minimize(
-    loss_function,
-    x0=[1.7, 1.0], #This is the initial guess 
-    args=(df_calib_crra,), #data set with the non-linear h term
-    method="L-BFGS-B",
-    bounds=[(0.01, 100000), (0.01, 10)])
-
-alpha_lbfgsb, sigma_lbfgsb = res_lbfgsb.x #Extracting the alpha and sigma values that minimise the function fro the variable 
-
-
-# 2) Nelder-Mead - single starting point
-res_nm_single = minimize(
-    loss_function,
-    x0=[3000, 2.0], #Initial guess
-    args=(df_calib_crra,),
-    method="Nelder-Mead")
-
-alpha_nm_single, sigma_nm_single = res_nm_single.x
-
-
-# 3) BFGS - unbounded quasi-Newton
-res_bfgs = minimize(
-    loss_function,
-    x0=[1.7, 1.0], #Initial guess
-    args=(df_calib_crra,),
-    method="BFGS")
-
-alpha_bfgs, sigma_bfgs = res_bfgs.x
-
-
-# 4) Grid search
-
-
-# 5) Hybrid - grid search + BFGS
-res_grid_bfgs = minimize(
-    loss_function,
-    x0=[best_grid_alpha, best_grid_sigma], #Uses the grid search results from above as the initial guess
-    args=(df_calib_crra,),
-    method="BFGS") #Quasi-Newton is applied to the initial gris search results 
-
-alpha_grid_bfgs, sigma_grid_bfgs = res_grid_bfgs.x
-
-
-# 6) Differential evolution
-res_de = differential_evolution(
-    lambda params: loss_function(params, df_calib_crra),
-    bounds=[(100, 30000),(0.5, 6.0)],
-    tol=1e-8, #The tolerence for the optimisation to end 
-    seed=123) #Optimisation follows random paths but from the same starting point 
-
-alpha_de, sigma_de = res_de.x
-
-
-# 7) Hybrid - differential evolution + L-BFGS-B
-res_de_lbfgsb = minimize(
-    loss_function,
-    x0=res_de.x, #The results from the differential evolution are used as the initial guess for a Bounded Quasi-Newton optimisation
-    args=(df_calib_crra,),
-    method="L-BFGS-B", 
-    bounds=[(100, 30000), (0.5, 6.0)])
-
-alpha_de_lbfgsb, sigma_de_lbfgsb = res_de_lbfgsb.x
-
-# 8) Nelder-Mead random restarts
-np.random.seed(123) #Random paths taken from the same starting point
-n_starts = 50 #Restarts will happen 50x
-best_nm_random_loss = np.inf
-res_nm_random_best = None
-best_nm_start_alpha = None
-best_nm_start_sigma = None
-
-for i in range(n_starts):
-    alpha_start = np.random.uniform(500, 20000) #Chooses any random number for alphs in those bounds
-    sigma_start = np.random.uniform(0.5, 6) #Chooses any random value for sigma in those bounds
-    res_temp = minimize(
-        loss_function,
-        x0=[alpha_start, sigma_start], #Initial guess is the random number from above
-        args=(df_calib_crra,), 
-        method="Nelder-Mead",
-        options={
-            "maxiter": 5000, #Operation will stop after 5000 steps 
-            "xatol": 1e-6, #This is the tolerance saying to not change alpha if less than this value 
-            "fatol": 1e-6}) #Means stop the loop if tolerence of the loss fucntion if less than this valus
-
-    if res_temp.fun < best_nm_random_loss: #Constantly comparing currently best loss value to the next loss value
-        best_nm_random_loss = res_temp.fun
-        res_nm_random_best = res_temp
-        best_nm_start_alpha = alpha_start
-        best_nm_start_sigma = sigma_start
-
-alpha_nm_random, sigma_nm_random = res_nm_random_best.x
-
-#Containing all the results in a variable so they can be easily converted to a Pandads Table
-results = [{
-        "Method": "L-BFGS-B",
-        "Alpha": alpha_lbfgsb,
-        "Sigma": sigma_lbfgsb,
-        "Loss": res_lbfgsb.fun},
-
-    {"Method": "Nelder-Mead (single)",
-        "Alpha": alpha_nm_single,
-        "Sigma": sigma_nm_single,
-        "Loss": res_nm_single.fun},
-
-    {   "Method": "BFGS",
-        "Alpha": alpha_bfgs,
-        "Sigma": sigma_bfgs,
-        "Loss": res_bfgs.fun},
-
-    {
-        "Method": "Grid Search",
-        "Alpha": best_grid_alpha,
-        "Sigma": best_grid_sigma,
-        "Loss": best_grid_loss},
-
-    {   "Method": "Grid + BFGS",
-        "Alpha": alpha_grid_bfgs,
-        "Sigma": sigma_grid_bfgs,
-        "Loss": res_grid_bfgs.fun},
-
-    {   "Method": "Differential Evolution",
-        "Alpha": alpha_de,
-        "Sigma": sigma_de,
-        "Loss": res_de.fun},
-
-    {   "Method": "DE + L-BFGS-B",
-        "Alpha": alpha_de_lbfgsb,
-        "Sigma": sigma_de_lbfgsb,
-        "Loss": res_de_lbfgsb.fun},
-
-    {
-        "Method": "Nelder-Mead (random restarts)",
-        "Alpha": alpha_nm_random,
-        "Sigma": sigma_nm_random,
-        "Loss": best_nm_random_loss}]
-
-
-#Converting results variable to Pandas DataFrame
-df_results = pd.DataFrame(results)
-
-#Rounding all results for presentation
-df_results[["Alpha", "Sigma", "Loss"]] = df_results[["Alpha", "Sigma", "Loss"]].round(4)
-latex_table = df_results.to_latex(index=False, float_format="%.4f")
-print(latex_table)
-print(df_results)
-
-
-
-
+results = df_optim_results.to_dict(orient="records")
 #-------------------------------------------REPRODUCING TABLE WITH ALPHA & SIGMA CALIBRATED-----------------------------------------
 
-
-
-
+def create_predictions(df, alpha, sigma):
 #Creating a new data frame for the jointly calibrated variables to be presented in a table
-df_jointly_calibrated_table = df_calib_crra.copy()
+    df_jointly_calibrated_table = df
 
-#Renaming columns to match lecture slides
-df_jointly_calibrated_table = df_jointly_calibrated_table.rename(columns = {
-    "period": "Period",
-    "country": "Country",
-    "h_obs": "Actual",
-    "t": "tau",
-    "c_y": "c_y"})
+    #Renaming columns to match lecture slides
+    df_jointly_calibrated_table = df_jointly_calibrated_table.rename(columns = {
+        "period": "Period",
+        "country": "Country",
+        "h_obs": "Actual",
+        "t": "tau",
+        "c_y": "c_y"})
 
-#Changing the period labels to match the lecture slides
-df_jointly_calibrated_table["Period"] = df_jointly_calibrated_table["Period"].replace({
-    "1993-1996": "1993-96",
-    "1970-1974": "1970-74"})
+    #Changing the period labels to match the lecture slides
+    df_jointly_calibrated_table["Period"] = df_jointly_calibrated_table["Period"].replace({
+        "1993-1996": "1993-96",
+        "1970-1974": "1970-74"})
 
-#Adding the top row of labels for the table
-df_jointly_calibrated_table = df_jointly_calibrated_table[["Period", "Country", "Actual", "tau", "c_y"]]
+    #Adding the top row of labels for the table
+    df_jointly_calibrated_table = df_jointly_calibrated_table[["Period", "Country", "Actual", "tau", "c_y"]]
 
-#Adding the predicted labour supply using differential evolution and bounded quasi hybrid to calibrate alpha and sigma
-df_jointly_calibrated_table["Predict"] = df_jointly_calibrated_table.apply(
-    lambda row: solve_h_brentq(row["tau"], row["c_y"], alpha_de_lbfgsb, sigma_de_lbfgsb),
-    axis=1).round(1)
+    #Adding the predicted labour supply using differential evolution and bounded quasi hybrid to calibrate alpha and sigma
+    df_jointly_calibrated_table["Predict"] = df_jointly_calibrated_table.apply(
+        lambda row: solve_h_brentq(row["tau"], row["c_y"], alpha, sigma),
+        axis=1).round(1)
 
-#Adding in  a difference column
-df_jointly_calibrated_table["Difference"] = (df_jointly_calibrated_table["Predict"] - df_jointly_calibrated_table["Actual"]).round(1)
+    #Adding in  a difference column
+    df_jointly_calibrated_table["Difference"] = (df_jointly_calibrated_table["Predict"] - df_jointly_calibrated_table["Actual"]).round(1)
 
-print(df_jointly_calibrated_table)
+    print(df_jointly_calibrated_table)
 
-#Converting pandas table to latex so it can be easily used in document 
-latex_table_1a = df_jointly_calibrated_table.to_latex(index = False, float_format = "%.1f") #Rounds to 1dp
-print(latex_table_1a)
+    #Converting pandas table to latex so it can be easily used in document 
+    latex_table_1a = df_jointly_calibrated_table.to_latex(index = False, float_format = "%.1f") #Rounds to 1dp
+    print(latex_table_1a)
 
+    return df_jointly_calibrated_table
+
+df_jointly_calibrated_table = create_predictions(df_calib_crra, best_alpha, best_sigma)
 
 
 #-------------------------------------------------------PLOTTING PREDICTED VS CALIBRATED VALUES---------------------------------------------
