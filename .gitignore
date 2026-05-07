@@ -16,6 +16,9 @@ __pycache__/
 # If you use a specific folder for data
 q2data/
 outputs/
+submission/
+videos/
+file_merge.py
 
 # Distribution / packaging
 .Python

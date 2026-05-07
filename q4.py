@@ -60,6 +60,11 @@ def k_T(k2: float, Z: np.array, p: Params):
     return K # return vector of all k value
 
 def shoot(p: Params):
+    """
+    Sets up shooting function K_t - k*
+    Root finds to sovle shooting function = 0 by varing k2
+    Returns k2 that solves shooting function
+    """
 
     z_star = 29 / 19 # z_star defined from geometric series
     k_star = k_steady_state(z_star, p)
@@ -81,6 +86,7 @@ def shoot(p: Params):
     return result.root
 
 def main():
+    
     import q4_plots
     p = Params() # instantiate parameters object
     k2 = shoot(p) # get steady state k2
