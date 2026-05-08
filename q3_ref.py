@@ -5,8 +5,6 @@ from scipy.optimize import brentq
 from scipy.optimize import minimize_scalar
 from scipy.optimize import minimize
 from scipy.optimize import differential_evolution
-
-
 from pathlib import Path
 
 # -----------------------------------------------IMPORTING AND CLEANING THE DATA-----------------------------------------------
@@ -42,21 +40,7 @@ def load_and_clean_data(file_path):
     
     return df
 
-# Define path and load data
-DATA_PATH = Path("q2data/data_prescott.csv")
-df_clean = load_and_clean_data(DATA_PATH)
-
-
-
-
 # -----------------------------------------------------------------CALIBRATING ALPHA & SIGMA--------------------------------------------------------------------
-
-
-
-
-
-#Creating a new data frame for calibrating using CRRA utility funciton
-df_calib_crra = df_clean.copy()
 
 
 #Prescotts FOC from Q1
@@ -69,16 +53,17 @@ def foc_equilibrium_condition(h, tau, c_y, alpha, sigma, theta = 0.32):
 
 
 #Using these values to find a sign change for h in order to use brentq as a root finding method
-tau = 0.44
-c_y = 0.83
-alpha = 1.7105
-sigma = 1.0
-theta = 0.32
+def check_sign_change():
+    tau = 0.44
+    c_y = 0.83
+    alpha = 1.7105
+    sigma = 1.0
+    theta = 0.32
 
-#Checking for a sign change to use brentq
-print("\nFOC at h=1:", foc_equilibrium_condition(1, tau, c_y, alpha, sigma, theta))
-print("FOC at h=21:", foc_equilibrium_condition(21, tau, c_y, alpha, sigma, theta))
-print("FOC at h=99:", foc_equilibrium_condition(99, tau, c_y, alpha, sigma, theta))
+    #Checking for a sign change to use brentq
+    print("\nFOC at h=1:", foc_equilibrium_condition(1, tau, c_y, alpha, sigma, theta))
+    print("FOC at h=21:", foc_equilibrium_condition(21, tau, c_y, alpha, sigma, theta))
+    print("FOC at h=99:", foc_equilibrium_condition(99, tau, c_y, alpha, sigma, theta))
 
 #Creating a root finding function to solve for h
 def solve_h_brentq(tau, c_y, alpha, sigma, theta = 0.32):
@@ -112,7 +97,7 @@ def grid_search_a_s(df, density):
     best_grid_alpha = None
     best_grid_sigma = None
 
-    for alpha in alpha_grid:
+    for alpha in alpha_grid: # loop over grid
         for sigma in sigma_grid:
             try:
                 loss = loss_function([alpha, sigma], df)
@@ -124,7 +109,7 @@ def grid_search_a_s(df, density):
                 best_grid_alpha = alpha #The associated alpha and sigma from that loss are the calibrated parameters 
                 best_grid_sigma = sigma
     
-    res_dict = {
+    res_dict = { # result dict has all info needed - this pattern will be used in all methods
         "Method": "Grid Search",
         "Alpha": best_grid_alpha,
         "Sigma": best_grid_sigma,
@@ -133,12 +118,6 @@ def grid_search_a_s(df, density):
     }
     
     return res_dict
-
-grid_res = grid_search_a_s(df_calib_crra, density = 80)
-best_grid_loss = grid_res["Loss"]
-best_grid_alpha = grid_res["Alpha"]
-best_grid_sigma = grid_res["Sigma"]
-
 
 def minimise_loss_group(df, methods: list[dict], guess, hybrid_method: str = None):
 
@@ -172,8 +151,8 @@ def minimise_diff_ev(df, bounds, seed = 123):
     res_de = differential_evolution(
         lambda params: loss_function(params, df),
         bounds= bounds,
-        tol=1e-8, #The tolerence for the optimisation to end 
-        seed=123)
+        tol = 1e-8, #The tolerence for the optimisation to end 
+        seed = seed) # random seed controls rng 
 
     res_dict = {
             "Method": "Differential Evolution",
@@ -187,62 +166,70 @@ def minimise_diff_ev(df, bounds, seed = 123):
 
 def run_optimisation(df):
 
+    # set up parameters
     grid_density = 80
-    results = []
     start_guess = (10000, 2)
     bounds = [(0.01, 100000), (0.01, 10)]
-    n_random_starts = 50
-    np.random.seed(123)
+    n_random_starts = 50 # no of random nelder mead iterations
+    np.random.seed(123) # seed controls randomiser for nelder mead points
 
-    methods = [ # maybe have as an argument!
+    results = [] # create empty list for results
+
+    methods = [ # list of methods that can be used in minimise_loss_group
         {"method": "Nelder-Mead", "bounds": None},
         {"method": "BFGS", "bounds": None},
         {"method": "L-BFGS-B", "bounds": bounds},
         ]
 
     grid_res = grid_search_a_s(df, grid_density)
-    results.append(grid_res)
-    grid_alpha = grid_res["Alpha"]
+    results.append(grid_res) # add to results
+    grid_alpha = grid_res["Alpha"] # store points for use as starting points later
     grid_sigma = grid_res["Sigma"]
 
+    # get results for using simply methods
     single_results = minimise_loss_group(df, methods, start_guess, "")
-    results += single_results
+    results += single_results# += combines the 2 lists
 
+    # get results when using grid search min as a starting point
     grid_start_results = minimise_loss_group(df, methods, (grid_alpha, grid_sigma), "Grid Search")
-    results += grid_start_results
+    results += grid_start_results 
 
     # show exmaple of how wrong starting guess get's wrong point
     wrong_start_results = minimise_loss_group(df, [methods[0]], (10, 2), "Bad Start")
     results += wrong_start_results
 
+    # get results with diff ev routine
     diff_ev_results = minimise_diff_ev(df, bounds)
     results.append(diff_ev_results)
-    diff_alpha = diff_ev_results["Alpha"]
+    diff_alpha = diff_ev_results["Alpha"] # store points for starting points
     diff_sigma = diff_ev_results["Sigma"]
 
+    # run bounded quasi newton on diff ev starting point
     diff_ev_qn_results = minimise_loss_group(df, [methods[2]], (diff_alpha, diff_sigma), "Diff Ev")
     results += diff_ev_qn_results
 
-    best_rand_guess = 1e10
-    best_rand_res = None
+    # randomise nelder mead starts for robustness
+    best_rand_guess = 1e10 # high value will be replaced on first iteration
+    best_rand_res = None 
     for i in range(n_random_starts):
 
-        alpha_start = np.random.uniform(100, 100000)
+        # randomise start points
+        alpha_start = np.random.uniform(100, 100000) 
         sigma_start = np.random.uniform(0.5, 10)
 
-        try:
+        try: # handle errors when foc fails to have a sign change
             rand_nm_res = minimise_loss_group(df, [methods[0]], (alpha_start, sigma_start), "Random Start")[0] # need to recover results from list
-        except ValueError:
+        except ValueError: # brent q throws value error so it handles that
             print(f"Thrown Error Iteration no {i} at Alpha {alpha_start} & Sigma {sigma_start}")
-            pass
+            continue # skip iteration after error raised
 
         if rand_nm_res["Loss"] < best_rand_guess:
             best_rand_guess = rand_nm_res["Loss"]
             best_rand_res = rand_nm_res
     
     results.append(best_rand_res)
-    print(f"Diff Ev best Loss: {diff_ev_results["Loss"]}")
-    print(f"Random NM best Loss: {best_rand_res["Loss"]}")
+    print(f"Diff Ev best Loss: {diff_ev_results['Loss']}") # use single quotes for nested strings
+    print(f"Random NM best Loss: {best_rand_res['Loss']}")
 
     df_results = pd.DataFrame(results)
 
@@ -253,14 +240,6 @@ def run_optimisation(df):
     print(df_results)
     return df_results
 
-df_optim_results = run_optimisation(df_calib_crra)
-best_loss_row_idx = df_optim_results["Loss"].idxmin()
-best_alpha = df_optim_results.loc[best_loss_row_idx, "Alpha"]
-best_sigma = df_optim_results.loc[best_loss_row_idx, "Sigma"]
-print(f"Lowest Loss value found by {df_optim_results.loc[df_optim_results["Loss"].idxmin()]}")
-
-
-results = df_optim_results.to_dict(orient="records")
 #-------------------------------------------REPRODUCING TABLE WITH ALPHA & SIGMA CALIBRATED-----------------------------------------
 
 def create_predictions(df, alpha, sigma):
@@ -299,12 +278,9 @@ def create_predictions(df, alpha, sigma):
 
     return df_jointly_calibrated_table
 
-df_jointly_calibrated_table = create_predictions(df_calib_crra, best_alpha, best_sigma)
-
-
 #-------------------------------------------------------PLOTTING PREDICTED VS CALIBRATED VALUES---------------------------------------------
 
-def plot_model_fit(df, period, x_lim, y_lim, save_name, title=None):
+def plot_model_fit(df, period, x_lim, y_lim, save_name = None, title=None):
     """
     Plots Predicted vs Actual hours for a specific period.
     """
@@ -347,16 +323,10 @@ def plot_model_fit(df, period, x_lim, y_lim, save_name, title=None):
     ax.set_ylabel("Predicted")
 
     fig.tight_layout()
-    fig.savefig(f"{save_name}.pdf", dpi=300, bbox_inches="tight")
+
+    if save_name:
+        fig.savefig(f"{save_name}.pdf", dpi=300, bbox_inches="tight")
     plt.show()
-
-# Plotting data for 1993 - 1996
-plot_model_fit(df_jointly_calibrated_table, "1993-96", (16, 28), (16, 28), "Model Fit 1993-96")
-
-# Plotting data for 1970 - 1974
-plot_model_fit(df_jointly_calibrated_table, "1970-74", (18, 30), (18, 34), "Model Fit 1970-74", title="CRRA Model Fit: 1970-74")
-
-
 
 #----------------------------------------------CREATING AN IMPROVEMENT COLUMN FOR PRESCOTT AND JOINT CALIBRATED MODEL----------------------------------------------------
 
@@ -364,6 +334,7 @@ plot_model_fit(df_jointly_calibrated_table, "1970-74", (18, 30), (18, 34), "Mode
 def create_improvement_df(df_crra, df_prescott):
 #This code is coppied from Q1 script as it uses the exact same data with the exception of changing the Pandas DataFrame name 
 
+    df_prescott = df_prescott.copy()
     #Renaming columns to match lecture slides
     df_prescott = df_prescott.rename(columns = {
         "period": "Period",
@@ -391,7 +362,7 @@ def create_improvement_df(df_crra, df_prescott):
     df_compare = df_crra.copy()
 
     df_compare["Prescott Difference"] = df_prescott["Difference"]
-    df_compare["CRRA Difference"] = df_jointly_calibrated_table["Difference"]
+    df_compare["CRRA Difference"] = df_crra["Difference"]
 
     #Calculating the difference between the Prescott data and the CRRA data
     df_compare["Improvement"] = df_compare["Prescott Difference"].abs() - df_compare["CRRA Difference"].abs()
@@ -402,17 +373,43 @@ def create_improvement_df(df_crra, df_prescott):
     print(df_compare.to_latex(index=False, float_format="%.1f")) #Latex form 
     print("\n",df_compare)
 
+    return df_compare
+
 
 #---------------------------------------------GRAPHING THE SURFACE AND CONTOUR OF THE LOSS FUNCTION---------------------------------------
 
+def create_point_styles(results):
+# Define style for each method for points on 3D graph
+    style_map = { # Dictionary with unique style for each method
+        "Grid Search": {"name": "Grid Search", "colour": "green", "marker": "v"},
+        "Nelder-Mead": {"name": "Nelder-Mead", "colour": "pink", "marker": "o"},
+        "BFGS": {"name": "BFGS", "colour": "black", "marker": "X"},
+        "L-BFGS-B": {"name": "L-BFGS-B", "colour": "blue", "marker": "^"},
+        "Grid Search Nelder-Mead": {"name": "Grid Search + Nelder-Mead", "colour": "purple", "marker": "P"},
+        "Grid Search BFGS": {"name": "Grid Search + BFGS", "colour": "orange", "marker": "s"},
+        "Grid Search L-BFGS-B": {"name": "Grid Search + L-BFGS-B", "colour": "cyan", "marker": "D"},
+        "Bad Start Nelder-Mead": {"name": "Bad Start + Nelder-Mead", "colour": "red", "marker": "x"},
+        "Differential Evolution": {"name": "Differential Evolution", "colour": "gray", "marker": "*"},
+        "Diff Ev L-BFGS-B": {"name": "Differential Evolution + L-BFGS-B", "colour": "brown", "marker": "h"},
+        "Random Start Nelder-Mead": {"name": "Random Start + Nelder-Mead", "colour": "magenta", "marker": "d"}
+    }
 
-#Plotting the ranges used for both surface and contour
-alpha_plot_range = (2000, 20000, 150)
-sigma_plot_range = (2.0, 4.0, 150)
+    # Create dict using results and style map
+    optimiser_points = {
+        style_map[res["Method"]]["name"]: {
+            "alpha": res["Alpha"],
+            "sigma": res["Sigma"],
+            "colour": style_map[res["Method"]]["colour"],
+            "marker": style_map[res["Method"]]["marker"],
+            "size": 120
+        }
+        for res in results if res["Method"] in style_map
+    }
 
+    return optimiser_points
 
 #Alphas and sigmas are looped into the loss function and the loss value is stored which computes the plotted surface 
-def plot_loss_surface(df, loss_function, alpha_range, sigma_range, optimiser_points = None):
+def plot_loss_surface(df, loss_function, alpha_range, sigma_range, optimiser_points = None, save_name = None):
     
     alpha_vals = np.linspace(*alpha_range) #Turning the 1D array into a 2D matracies
     sigma_vals = np.linspace(*sigma_range)
@@ -461,86 +458,105 @@ def plot_loss_surface(df, loss_function, alpha_range, sigma_range, optimiser_poi
     ax.set_title("Loss Surface")
 
     ax.legend(fontsize = 8, loc = "upper left", bbox_to_anchor = (1.05, 1)) #Locking the legend in place and resizing it
-    ax.legend()
 
     fig.tight_layout()
-    fig.savefig("Loss surface.pdf", dpi = 300, bbox_inches = "tight", pad_inches = 0.3)
+    if save_name: # optionally save
+        fig.savefig(save_name, dpi = 300, bbox_inches = "tight", pad_inches = 0.3)
     plt.show()
 
     return A, S, Z
 
-# Define style for each method
-style_map = {
-    "Grid Search": {"name": "Grid Search", "colour": "green", "marker": "v"},
-    "Nelder-Mead": {"name": "Nelder-Mead", "colour": "pink", "marker": "o"},
-    "BFGS": {"name": "BFGS", "colour": "black", "marker": "X"},
-    "L-BFGS-B": {"name": "L-BFGS-B", "colour": "blue", "marker": "^"},
-    "Grid Search Nelder-Mead": {"name": "Grid Search + Nelder-Mead", "colour": "purple", "marker": "P"},
-    "Grid Search BFGS": {"name": "Grid Search + BFGS", "colour": "orange", "marker": "s"},
-    "Grid Search L-BFGS-B": {"name": "Grid Search + L-BFGS-B", "colour": "cyan", "marker": "D"},
-    "Bad Start Nelder-Mead": {"name": "Bad Start + Nelder-Mead", "colour": "red", "marker": "x"},
-    "Differential Evolution": {"name": "Differential Evolution", "colour": "gray", "marker": "*"},
-    "Diff Ev L-BFGS-B": {"name": "Differential Evolution + L-BFGS-B", "colour": "brown", "marker": "h"},
-    "Random Start Nelder-Mead": {"name": "Random Start + Nelder-Mead", "colour": "magenta", "marker": "d"}
-}
+def plot_loss_heatmap(A, S, Z, optimiser_points, save_name = False):
+    fig, ax = plt.subplots(figsize = (8, 6)) #A new canvas is created for the contour plot with the associated dimensions
 
-# Create dict using results and style map
-optimiser_points = {
-    style_map[res["Method"]]["name"]: {
-        "alpha": res["Alpha"],
-        "sigma": res["Sigma"],
-        "colour": style_map[res["Method"]]["colour"],
-        "marker": style_map[res["Method"]]["marker"],
-        "size": 120
-    }
-    for res in results if res["Method"] in style_map
-}
+    #We are normalising the loss curve so that the lowest value essentially becomes 0 on the heat map
+    Z_min = np.nanmin(Z)
+    Z_shifted = Z - Z_min
+
+    levels = np.linspace(0, np.percentile(Z_shifted, 10), 100) #Only focuses on the 10% of the loss surface
+                                                            #This allows for greater precision when looking at the contour lines
+
+    #Below are parameters to smothen the colour shading and reduce the number of black contour lines making results better presented
+    levels_fill = np.linspace(0, np.nanpercentile(Z_shifted, 10), 100) #np.nanpercentile ignores any nan's that have been pulled through
+    levels_lines = np.linspace(0, np.nanpercentile(Z_shifted, 10), 12)
+
+    contour = ax.contourf(A, S, Z_shifted, levels = levels_fill) #Creates a smooth colour heat map
+    ax.contour(A, S, Z_shifted, levels = levels_lines, colors = "black", linewidths = 0.5) #draws on the contour lines with the associated features
+    fig.colorbar(contour, ax = ax, label = "Loss Above Minimum") #Labeling the colour bar 
+
+    #Adding in the optimiser points using same dictionary as the surface plot
+    for name, point in optimiser_points.items(): #Each sigma and alpha will provide with a loss value, which is then plotted
+
+        ax.scatter( #Same parameters are changed above for both plots
+            point["alpha"],
+            point["sigma"],
+            color = point["colour"],
+            edgecolor = "black",
+            s = point["size"],
+            marker = point["marker"],
+            label = name)
+
+    ax.set_xlim(9000, 20000) #Limiting the axis for better clarity of results
+    ax.set_ylim(2.95, 3.1)
+
+    ax.set_xlabel("Alpha")
+    ax.set_ylabel("Sigma")
+
+    ax.set_title("Loss Function Contour")
+    ax.legend(loc = "lower right") # corner has least info relevant to plot
+
+    fig.tight_layout()
+
+    if save_name: # optional save
+        fig.savefig(save_name, dpi = 300, bbox_inches = "tight", pad_inches = 0.5)
+
+    plt.show()
 
 
-#Below is the line which calls the function and plots the loss surface
-A, S, Z = plot_loss_surface(df_calib_crra, loss_function, alpha_plot_range, sigma_plot_range, optimiser_points)
+def main():
 
+    # set data path, import and clean data
+    DATA_PATH = Path("q2data/data_prescott.csv")
+    df_clean = load_and_clean_data(DATA_PATH)
 
+    #Creating a new data frame for calibrating using CRRA utility funciton
+    df_calib_crra = df_clean.copy()
 
-fig, ax = plt.subplots(figsize = (8, 6)) #A new canvas is created for the contour plot with the associated dimensions
+    # run all optimisation methods - results are a list of dicts
+    df_optim_results = run_optimisation(df_calib_crra)
 
-#We are normalising the loss curve so that the lowest value essentially becomes 0 on the heat map
-Z_min = np.nanmin(Z)
-Z_shifted = Z - Z_min
+    # find best loss row for prediction
+    best_loss_row_idx = df_optim_results["Loss"].idxmin()
+    best_alpha = df_optim_results.loc[best_loss_row_idx, "Alpha"]
+    best_sigma = df_optim_results.loc[best_loss_row_idx, "Sigma"]
+    print(f"Lowest Loss value found by {df_optim_results.loc[df_optim_results['Loss'].idxmin()]}")
 
-levels = np.linspace(0, np.percentile(Z_shifted, 10), 100) #Only focuses on the 10% of the loss surface
-                                                           #This allows for greater precision when looking at the contour lines
+    df_jointly_calibrated_table = create_predictions(df_calib_crra, best_alpha, best_sigma)
 
-#Below are parameters to smothen the colour shading and reduce the number of black contour lines making results better presented
-levels_fill = np.linspace(0, np.nanpercentile(Z_shifted, 10), 100) #np.nanpercentile ignores any nan's that have been pulled through
-levels_lines = np.linspace(0, np.nanpercentile(Z_shifted, 10), 12)
+    # create improvememnt df
+    create_improvement_df(df_jointly_calibrated_table, df_clean)
 
-contour = ax.contourf(A, S, Z_shifted, levels = levels_fill) #Creates a smooth colour heat map
-ax.contour(A, S, Z_shifted, levels = levels_lines, colors = "black", linewidths = 0.5) #draws on the contour lines with the associated features
-fig.colorbar(contour, ax = ax, label = "Loss Above Minimum") #Labeling the colour bar 
+    plot_graphs = True # set to False to skip graphing
+    if plot_graphs == True:
+        # Plotting data for 1993 - 1996
+        plot_model_fit(df_jointly_calibrated_table, "1993-96", (16, 28), (16, 28), save_name = "Model Fit 1993-96", title="CRRA Model Fit: 1993-96")
 
-#Adding in the optimiser points using same dictionary as the surface plot
-for name, point in optimiser_points.items(): #Each sigma and alpha will provide with a loss value, which is then plotted
+        # Plotting data for 1970 - 1974
+        plot_model_fit(df_jointly_calibrated_table, "1970-74", (18, 30), (18, 34), save_name = "Model Fit 1970-74", title="CRRA Model Fit: 1970-74")
+    
+        # turn results into a dict for use in plot styles
+        results = df_optim_results.to_dict(orient="records")
+        #create style dictionary
+        optimiser_points = create_point_styles(results)
+            
+        #Plotting the ranges used for both surface and contour
+        alpha_plot_range = (2000, 20000, 150)
+        sigma_plot_range = (2.0, 4.0, 150)
+            
+        #Below is the line which calls the function and plots the loss surface
+        A, S, Z = plot_loss_surface(df_calib_crra, loss_function, alpha_plot_range, sigma_plot_range, optimiser_points, save_name = "Loss surface.pdf")
 
-    ax.scatter( #Same parameters are changed above for both plots
-        point["alpha"],
-        point["sigma"],
-        color = point["colour"],
-        edgecolor = "black",
-        s = point["size"],
-        marker = point["marker"],
-        label = name)
+        plot_loss_heatmap(A, S, Z, optimiser_points, save_name = "Contour of loss surface.pdf")
 
-ax.set_xlim(10000, 20000) #Limiting the axis for better clarity of results
-ax.set_ylim(2.95, 3.1)
-
-ax.set_xlabel("Alpha")
-ax.set_ylabel("Sigma")
-
-ax.set_title("Loss Function Contour")
-ax.legend()
-
-fig.tight_layout()
-fig.savefig("Contour of loss surface.pdf", dpi = 300, bbox_inches = "tight", pad_inches = 0.5)
-
-plt.show()
+if __name__ == "__main__":
+    main()
