@@ -457,7 +457,7 @@ def plot_loss_surface(df, loss_function, alpha_range, sigma_range, optimiser_poi
     ax.set_zlabel("Loss", labelpad = 15)
     ax.set_title("Loss Surface")
 
-    ax.legend(fontsize = 8, loc = "upper left", bbox_to_anchor = (1.05, 1)) #Locking the legend in place and resizing it
+    ax.legend(fontsize = 8, loc = "upper left", bbox_to_anchor=(0.75, 0.85)) #Locking the legend in place and resizing it
 
     fig.tight_layout()
     if save_name: # optionally save
@@ -516,7 +516,7 @@ def plot_loss_heatmap(A, S, Z, optimiser_points, save_name = False):
 def main():
 
     # set data path, import and clean data
-    DATA_PATH = Path("q2data/data_prescott.csv")
+    DATA_PATH = Path("data/data_prescott.csv")
     df_clean = load_and_clean_data(DATA_PATH)
 
     #Creating a new data frame for calibrating using CRRA utility funciton
@@ -550,11 +550,11 @@ def main():
         optimiser_points = create_point_styles(results)
             
         #Plotting the ranges used for both surface and contour
-        alpha_plot_range = (2000, 20000, 150)
+        alpha_plot_range = (500, 20000, 150)
         sigma_plot_range = (2.0, 4.0, 150)
             
         #Below is the line which calls the function and plots the loss surface
-        A, S, Z = plot_loss_surface(df_calib_crra, loss_function, alpha_plot_range, sigma_plot_range, optimiser_points, save_name = "Loss surface.pdf")
+        A, S, Z = plot_loss_surface(df_calib_crra, loss_function, alpha_plot_range, sigma_plot_range, optimiser_points, save_name = "Loss surface_0.pdf")
 
         plot_loss_heatmap(A, S, Z, optimiser_points, save_name = "Contour of loss surface.pdf")
 

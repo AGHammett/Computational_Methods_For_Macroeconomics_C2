@@ -100,8 +100,7 @@ def loss_function(parameters, df, theta = 0.32): #Theta is kept fixed
     return float(loss) #Expecting the loss to a number with a decimal point which improves precision
 
 
-#A variety of different optimisers
-
+#A variety of different optimiser
 
 # 1) L-BFGS-B - bounded quasi-Newton
 res_lbfgsb = minimize(

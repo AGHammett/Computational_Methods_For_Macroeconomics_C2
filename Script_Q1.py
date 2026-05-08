@@ -6,7 +6,9 @@ import matplotlib.pyplot as plt
 # ---------------------------------------------IMPORTING AND CLEANING THE DATA-------------------------------------------------
 
 #Importing Prescott data 
-df_raw = pd.read_csv('/Users/mackmarin/Documents/Econ Year 3/EconPython/Computational Methods/Course Work 2/data_prescott.csv')
+DATA_PATH = "data/data_prescott.csv"
+
+df_raw = pd.read_csv(DATA_PATH)
 
 df_clean = df_raw.copy() #Creating a new copy of the raw data to clean labelled clean
 

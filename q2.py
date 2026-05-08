@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 # set up output path globals 
-DATA_DIR = Path("q2data")
+DATA_DIR = Path("data")
 OUTPUT_DIR = Path("outputs")
 
 def load_g7_data():
